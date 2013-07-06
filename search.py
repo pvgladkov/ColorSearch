@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import cv
 import time
 import sqlite3
+import getopt
 
 con = sqlite3.connect('searcher.db')
 with con:
@@ -23,6 +24,7 @@ def create_images_table():
 
 
 def create_relation_table():
+    cur.execute('DROP TABLE "image_colors"')
     cur.execute('CREATE TABLE "image_colors" (\
         "image_id" INTEGER NOT NULL,\
         "color" INTEGER NOT NULL\
@@ -37,18 +39,76 @@ def fill_images(images):
     con.commit()
 
 
+def get_image_id(filename):
+    image_id = cur.execute("SELECT id FROM images WHERE filename='%s'" % filename).fetchone()
+    return image_id[0]
+
+
+def insert_relation(image_id, color):
+    cur.execute("INSERT INTO image_colors (image_id, color) values (?,?)", (image_id, color))
+    con.commit()
+
+
 def index(filename):
     cv_image = SimpleCV.Image(filename)
     hsv = cv_image.toHSV()
-    peak = hsv.huePeaks()
+    peaks = hsv.huePeaks()
+    colors = []
+    for vals in peaks:
+        colors.append(round(vals[0]/10)*10)
 
+    image_id = get_image_id(filename)
+    for color in colors:
+        insert_relation(image_id, color)
+
+
+def search(color):
+    result = cur.execute(
+        "SELECT images.filename from image_colors\
+         join images on (image_colors.image_id=images.id)\
+        where image_colors.color=%s" % color
+    ).fetchall()
+    print [item[0] for item in result]
+    return [item[0] for item in result]
+
+
+def run(argv):
+
+    try:
+        opts, args = getopt.getopt(argv, "ts:image")
+    except getopt.GetoptError:
+        sys.exit(2)
+
+    if len(args) > 0:
+        resultCount = int(args[0])
+    else:
+        resultCount = 3
+
+    if '-t' == opts[0][0]:
+        indx = Indexer()
+        images = indx.getImList()
+
+        fill_images(images)
+        create_relation_table()
+
+        for image in images:
+            index(image)
+
+    elif '-s' == opts[0][0]:
+
+        result = search(opts[0][1])
+
+        for i in range(resultCount):
+            cv.NamedWindow('result_'+str(i), cv.CV_WINDOW_NORMAL)
+            cv.ShowImage('result_'+str(i), cv.LoadImage(result[i]))
+        cv.WaitKey(0)
+
+        for i in result:
+            print i
 
 if __name__ == '__main__':
 
-    indx = Indexer()
-    images = indx.getImList()
-
-    fill_images(images)
+    run(sys.argv[1:])
 
     #print image
 
